@@ -1,0 +1,162 @@
+local bcompression = {}
+
+local setmetatable = setmetatable;
+local table_clone = table.clone;
+
+bcompression.startByte = 127
+bcompression.maxEntries = 128
+bcompression.rep = 2
+
+function bcompression:Compress(data)
+	local rep = self.rep
+	local conToi = false
+	local dict = {}
+	local l = 0
+	local enc = ""
+	local lastBlockI
+	local length = data:len()
+
+	local function e(block)
+		if l == self.maxEntries then
+			dict[block] = block
+		else
+			dict[block] = string.char(l + self.startByte)
+			l=l+1
+		end
+	end
+
+	for i = 1, length do
+		local block = data:sub(i, i + rep - 1)
+		if not conToi or i >= conToi then
+			lastBlockI = i
+			conToi = i + rep
+			if dict[block] then
+				enc = enc .. dict[block]
+			else
+				e(block)
+				enc = enc .. block
+			end
+		end
+	end
+
+	return enc
+end
+
+function bcompression:Decompress(edata)
+	local rep = self.rep
+	local dec = ""
+	local dict = {}
+	local l = 0
+	local conToi = false
+
+	local function checkBlock(block)
+		if block:sub(1,1):byte() >= self.startByte then
+			return true
+		end
+	end
+
+	local function decodeBlock(i)
+		local match = edata:sub(i,i):byte() - self.startByte
+		dec = dec .. dict[match]
+	end
+
+	for i = 1, edata:len() do
+		local block = edata:sub(i, i+rep-1)
+		if not conToi or i >= conToi then
+			conToi = i + rep
+			if checkBlock(block) then
+				decodeBlock(i)
+				conToi = i + 1
+			else
+				dict[l] = block
+				l = l + 1
+				dec = dec .. block
+			end
+		end
+	end
+
+	decodeBlock, checkBlock, edata, dict, l, conToi, rep = nil, nil, nil, nil, nil, nil;
+	return dec
+end
+
+function bcompression.findBestRepMostByte(data, maxRep)
+	local bestr, best = 0, 2;
+	local most = 0;
+	local len = #data
+	local max = math.floor(len/2);
+	if maxRep then
+		max = math.min(max, maxRep)
+	end
+	if len >= 3 then
+		for i = 2, max do
+			local hash = {};
+			local rep = 0;
+			data:gsub(string.rep(".", i), function(block)
+				if hash[block] then
+					rep = rep + 1
+				else
+					hash[block] = true
+				end
+				block:gsub(".", function(c)
+					local b = c:byte();
+					if b > most then
+						most = b
+					end
+				end)
+			end)
+
+			if rep > bestr then
+				best = i
+				bestr = rep
+			end
+		end
+	end
+	return best, most;
+end
+
+bcompression = setmetatable(bcompression, {
+	__call = function(self)
+		return table_clone(self)
+	end,
+});
+
+local function encode(data)
+	if #data >= 100000 then return data end
+	local rep, mostByte = bcompression.findBestRepMostByte(data, 25);
+	local enc = string.char(rep) .. string.char(mostByte) .. data;
+	--assert(mostByte ~= 255, "No entries can be used since the original data already takes up all of them")
+
+	if mostByte ~= 0 and mostByte ~= 255 then
+		local bcompressNew = bcompression();
+		bcompressNew.startByte = mostByte + 1;
+		bcompressNew.maxEntries = 255 - bcompressNew.startByte;
+		bcompressNew.rep = rep;
+		enc = enc:sub(1, 2) .. bcompressNew:Compress(data)
+		return enc
+	elseif mostByte == 255 then
+		return enc;
+	else
+		return data;
+	end
+end
+
+local function decode(edata)
+	if #edata > 3 then
+		local rep = edata:sub(1,1):byte();
+		local mostByte = edata:sub(2,2):byte();
+		if mostByte == 255 then
+			return edata:sub(3)
+		end
+		local bcompressNew = bcompression();
+		bcompressNew.startByte = mostByte + 1;
+		bcompressNew.rep = rep;
+		return bcompressNew:Decompress(edata:sub(3))
+	else
+		return edata;
+	end
+end
+
+return {
+	dec = decode,
+	enc = encode,
+}
