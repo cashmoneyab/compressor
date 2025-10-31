@@ -1,8 +1,6 @@
-custom compressor algorithm
-otherwise known as cca
+cca -> short for caca. bcuz the original name was caca
+its a beautiful compression algorithm that works with (mostly with what I tested) everything.
 
-inspired by lzw algorithm, i'll add more to it.
-there is a bug and is really really hard to fix, so i'll just leave it in.
-idk how this bug works.
-
-if you ACTUALLY want to use this, make sure to not use line breaks.
+bcompress -> idk i forgot why i named it this
+mini-lwz algorithm with a techique I like to call reverse dictionary
+basically, no dictionary is needed.
